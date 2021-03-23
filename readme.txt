@@ -6,4 +6,4 @@ Step to create jar file from this project.
    click Finish.
 
 Example command to run JAR file:
-java -jar bay-pcm-job.jar dbo.batch_TEST_2 192.168.10.174 1433 AYCAP_CONSENT_DEV sa locus123@ --log
+java -jar bay-pcm-job.jar dbo.TEST_batch DataDate=20210319,ModeRun=D 192.168.10.182 1433 BAY_CONSENT_DEV sa Locus@123 --log

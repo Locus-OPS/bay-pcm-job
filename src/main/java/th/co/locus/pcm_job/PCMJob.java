@@ -28,45 +28,43 @@ public class PCMJob {
 	private static final String DATE_TIME_LOG_FILE_PATTERN = "yyyyMMddHHmmss";
 	private static final String LOG_FILE_EXTENSION = ".txt";
 
-	public void run(String procedureName, String server, String port, String database, String user, String password,
-			String option) {
-
-		switch (option) {
-		case "--debug":
+	public void run(String procedureName, String batchParameters, String databaseIpAddesss, String databasePort,
+			String databaseName, String databaseUser, String password, String logOption) throws IOException {
+		
+		if ("--debug".equalsIgnoreCase(logOption)) {
 			logMode = LogMode.DEBUG;
 			System.out.println("Run on debug mode");
-			break;
-		case "--log":
+		} else if ("--log".equalsIgnoreCase(logOption)) {
 			logMode = LogMode.INFO;
 			System.out.println("Run with log mode");
-			break;
-		default:
+		} else {
 			logMode = LogMode.SILENT;
 			System.out.println("Run with silent mode.");
 		}
-		callStoredProcedure(procedureName, server, port, database, user, password);
+
+		callStoredProcedure(procedureName, batchParameters, databaseIpAddesss, databasePort, databaseName, databaseUser, password);
 		writeLog();
 
 	}
 
-	public void callStoredProcedure(String procedureName, String server, String port, String dbname, String user,
-			String password) {
+	public void callStoredProcedure(String procedureName, String batchParameters, String databaseIpAddesss, String databasePort,
+			String databaseName, String databaseUser, String password) {
 
-		if (server != null) {
-			addLogMessage("Connecting to db server : " + server);
+		if (databaseIpAddesss != null) {
+			addLogMessage("Connecting to db server : " + databaseIpAddesss);
 		} else {
 			addLogMessage("Error: Not found server on configuration !!");
 		}
 
-		if (port != null) {
-			addLogMessage("Port :" + port);
+		if (databasePort != null) {
+			addLogMessage("Port: " + databasePort);
 		} else {
 			addLogMessage("Error: Not found port on configuration !!");
 		}
 
-		if (user != null && password != null) {
+		if (databaseUser != null && password != null) {
 			String u = "";
-			for (int i = 0; i < user.length(); i++) {
+			for (int i = 0; i < databaseUser.length(); i++) {
 				u = u + "*";
 			}
 			String p = "";
@@ -76,11 +74,11 @@ public class PCMJob {
 
 			addLogMessage("Check database user : " + u + " , password : " + p + " ");
 		} else {
-			addLogMessage("Error: Not found DB login user or password !!");
+			addLogMessage("Error: Not found Database login user or password !!");
 		}
 
-		if (dbname != null) {
-			addLogMessage("Database : " + dbname);
+		if (databaseName != null) {
+			addLogMessage("Database name : " + databaseName);
 		} else {
 			addLogMessage("Error: Not found database on configuration !!");
 		}
@@ -93,24 +91,26 @@ public class PCMJob {
 
 		long startTime = System.currentTimeMillis();
 
-		String connectionString = "jdbc:sqlserver://" + server + ":" + port + ";databaseName=" + dbname + ";user="
-				+ user + ";password=" + password;
+		String connectionString = "jdbc:sqlserver://" + databaseIpAddesss + ":" + databasePort + ";databaseName=" + databaseName + ";user="
+				+ databaseUser + ";password=" + password;
 
 		Connection con = null;
 		ResultSet rs = null;
 		CallableStatement cstmt = null;
 		try {
-
+			Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
 			con = DriverManager.getConnection(connectionString);
 		} catch (Exception e) {
-			addLogMessage("Error: Could not connect database server. " + "Please verify the connection properties. "
+			e.printStackTrace();
+			addLogMessage("Error: Cannot connect database server. Please verify the connection properties. "
 					+ "Make sure that TCP connections to the port are not blocked by a firewall.");
 		}
 
 		try {
-			addLogMessage("Start call procedure ..." + procedureName);
+			String batchParams = getStoredProcParams(batchParameters);
 
-			String sql = "{call " + procedureName + "}";
+			String sql = "exec " + procedureName + batchParams + ";";
+			addLogMessage("Start call procedure ..." + sql);
 			cstmt = con.prepareCall(sql);
 
 			boolean results = cstmt.execute();
@@ -169,6 +169,24 @@ public class PCMJob {
 		}
 
 	}
+	
+	private String getStoredProcParams(String batchParameters) {
+		if ("NONE".equalsIgnoreCase(batchParameters) || "NO".equalsIgnoreCase(batchParameters)) {
+			return "";
+		}
+		String storedProcParams = "";
+		String[] batchParameterArray = batchParameters.split(",");
+		for (String batchParameter : batchParameterArray) {
+			String[] paramAndValue = batchParameter.split("=");
+			String paramName = paramAndValue[0];
+			String value = paramAndValue[1];
+			if (storedProcParams != null && !"".equals(storedProcParams)) {
+				storedProcParams += ",";
+			}
+			storedProcParams += " @" + paramName + " = '" + value + "'";
+		}
+		return storedProcParams;
+	}
 
 	private void addLogMessage(String newLogMessage) {
 		switch (logMode) {
@@ -187,18 +205,24 @@ public class PCMJob {
 		}
 	}
 
-	@SuppressWarnings("deprecation")
-	private void writeLog() {
+	private void writeLog() throws IOException {
 		if (logMode == LogMode.INFO) {
+			Date current = new Date();
+			String dateTimePattern = PCMJob.DATE_TIME_LOG_FILE_PATTERN;
+			SimpleDateFormat dateFormat = new SimpleDateFormat(dateTimePattern);
+			String dateTimeOutput = dateFormat.format(current);
+			File logsFolder = new File("logs");
+			if (!logsFolder.exists()) {
+				logsFolder.mkdir();
+			}
+			
+			String fileName = "logs/" + PCMJob.PREFIX_LOG_FILE + dateTimeOutput + PCMJob.LOG_FILE_EXTENSION;
+			File file = new File(fileName);
 			try {
-				Date current = new Date();
-				String dateTimePattern = PCMJob.DATE_TIME_LOG_FILE_PATTERN;
-				SimpleDateFormat dateFormat = new SimpleDateFormat(dateTimePattern);
-				String dateTimeOutput = dateFormat.format(current);
-				String fileName = PCMJob.PREFIX_LOG_FILE + dateTimeOutput + PCMJob.LOG_FILE_EXTENSION;
-				FileUtils.writeStringToFile(new File(fileName), logMessage.toString());
+				FileUtils.writeStringToFile(file, logMessage.toString());
 			} catch (IOException e) {
 				e.printStackTrace();
+				FileUtils.writeStringToFile(file, e.getMessage());
 			}
 		}
 	}
