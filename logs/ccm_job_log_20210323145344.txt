@@ -1,8 +1,0 @@
-Connecting to db server : 192.168.10.182
-Port: 1433
-Check database user : ** , password : ********* 
-Database name : BAY_CONSENT_DEV
-Call procuedure name : dbo.TEST_batch
-Start call procedure ...exec dbo.TEST_batch @DataDate = '20210319', @ModeRun = 'D';
-No result.
-Call procedure finished in...408 ms.

@@ -10,8 +10,15 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Properties;
 
 import org.apache.commons.io.FileUtils;
+
+import com.microsoft.sqlserver.jdbc.StringUtils;
+
+import th.co.locus.utils.LogMode;
+import th.co.locus.utils.PBEStringEncryptor;
+import th.co.locus.utils.PropertyUtil;
 
 public class PCMJob {
 
@@ -28,60 +35,28 @@ public class PCMJob {
 	private static final String DATE_TIME_LOG_FILE_PATTERN = "yyyyMMddHHmmss";
 	private static final String LOG_FILE_EXTENSION = ".txt";
 
-	public void run(String procedureName, String batchParameters, String databaseIpAddesss, String databasePort,
-			String databaseName, String databaseUser, String password, String logOption) throws IOException {
+	public void run(String procedureName, String batchParameters, String fileConfigPath, String logPath, String logOption) throws IOException {
 		
-		if ("--debug".equalsIgnoreCase(logOption)) {
+		switch (logOption) {
+		case "--debug":
 			logMode = LogMode.DEBUG;
 			System.out.println("Run on debug mode");
-		} else if ("--log".equalsIgnoreCase(logOption)) {
+			break;
+		case "--log":
 			logMode = LogMode.INFO;
 			System.out.println("Run with log mode");
-		} else {
+			break;
+		default:
 			logMode = LogMode.SILENT;
 			System.out.println("Run with silent mode.");
+		
 		}
-
-		callStoredProcedure(procedureName, batchParameters, databaseIpAddesss, databasePort, databaseName, databaseUser, password);
-		writeLog();
+		callStoredProcedure(procedureName, batchParameters, fileConfigPath);
+		writeLog(logPath);
 
 	}
 
-	public void callStoredProcedure(String procedureName, String batchParameters, String databaseIpAddesss, String databasePort,
-			String databaseName, String databaseUser, String password) {
-
-		if (databaseIpAddesss != null) {
-			addLogMessage("Connecting to db server : " + databaseIpAddesss);
-		} else {
-			addLogMessage("Error: Not found server on configuration !!");
-		}
-
-		if (databasePort != null) {
-			addLogMessage("Port: " + databasePort);
-		} else {
-			addLogMessage("Error: Not found port on configuration !!");
-		}
-
-		if (databaseUser != null && password != null) {
-			String u = "";
-			for (int i = 0; i < databaseUser.length(); i++) {
-				u = u + "*";
-			}
-			String p = "";
-			for (int i = 0; i < password.length(); i++) {
-				p = p + "*";
-			}
-
-			addLogMessage("Check database user : " + u + " , password : " + p + " ");
-		} else {
-			addLogMessage("Error: Not found Database login user or password !!");
-		}
-
-		if (databaseName != null) {
-			addLogMessage("Database name : " + databaseName);
-		} else {
-			addLogMessage("Error: Not found database on configuration !!");
-		}
+	public void callStoredProcedure(String procedureName, String batchParameters, String fileConfigPath) {
 
 		if (procedureName != null) {
 			addLogMessage("Call procuedure name : " + procedureName);
@@ -91,14 +66,23 @@ public class PCMJob {
 
 		long startTime = System.currentTimeMillis();
 
-		String connectionString = "jdbc:sqlserver://" + databaseIpAddesss + ":" + databasePort + ";databaseName=" + databaseName + ";user="
-				+ databaseUser + ";password=" + password;
+		
 
 		Connection con = null;
 		ResultSet rs = null;
 		CallableStatement cstmt = null;
 		try {
-			Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+			Properties appProperties = PropertyUtil.getApplicationProperties(fileConfigPath);
+			String datasourceUrl = appProperties.getProperty("datasource.url");
+			String username = appProperties.getProperty("datasource.username");
+			String encryptedPassword = appProperties.getProperty("datasource.password.encrypted");
+			String secretKey = appProperties.getProperty("secret.key");
+			PBEStringEncryptor encryptor = new PBEStringEncryptor(secretKey);
+			String decryptedPassword = encryptor.decrypt(encryptedPassword);
+			
+			String connectionString = datasourceUrl
+					+ ";user=" + username + ";password=" + decryptedPassword;
+
 			con = DriverManager.getConnection(connectionString);
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -107,7 +91,7 @@ public class PCMJob {
 		}
 
 		try {
-			String batchParams = getStoredProcParams(batchParameters);
+			String batchParams = getStoredProcParams(batchParameters, fileConfigPath);
 
 			String sql = "exec " + procedureName + batchParams + ";";
 			addLogMessage("Start call procedure ..." + sql);
@@ -131,6 +115,12 @@ public class PCMJob {
 				addLogMessage(columnNames);
 
 				while (rs.next()) {
+					String text = rs.getString("RESULT");
+					EmailSender.sendEmail(text, fileConfigPath);
+					String rejectMessage = rs.getString("RESULT2");
+					if (!StringUtils.isEmpty(rejectMessage)) {
+						EmailSender.sendEmail(rejectMessage, fileConfigPath);
+					}
 					String rowData = "";
 					for (int c = 1; c <= totalColumns; c++) {
 						if (c > 1) {
@@ -141,7 +131,7 @@ public class PCMJob {
 					addLogMessage(rowData);
 				}
 			} else {
-				addLogMessage("No result.");
+				addLogMessage("No result to send email.");
 			}
 
 			long endTime = System.currentTimeMillis();
@@ -149,6 +139,7 @@ public class PCMJob {
 			addLogMessage("Call procedure finished in..." + process_time + " ms.");
 
 		} catch (Exception e) {
+			e.printStackTrace();
 			addLogMessage(e.getMessage());
 		} finally {
 			if (rs != null) {
@@ -170,12 +161,17 @@ public class PCMJob {
 
 	}
 	
-	private String getStoredProcParams(String batchParameters) {
+	private String getStoredProcParams(String batchParameters, String fileConfigPath) throws IOException {
+		
 		if ("NONE".equalsIgnoreCase(batchParameters) || "NO".equalsIgnoreCase(batchParameters)) {
 			return "";
 		}
+		
+		Properties appProperties = PropertyUtil.getApplicationProperties(fileConfigPath);
+		String batchSplitCharacter = appProperties.getProperty("batch.split.character");
+		
 		String storedProcParams = "";
-		String[] batchParameterArray = batchParameters.split(",");
+		String[] batchParameterArray = batchParameters.split(batchSplitCharacter);
 		for (String batchParameter : batchParameterArray) {
 			String[] paramAndValue = batchParameter.split("=");
 			String paramName = paramAndValue[0];
@@ -205,18 +201,19 @@ public class PCMJob {
 		}
 	}
 
-	private void writeLog() throws IOException {
+	@SuppressWarnings("deprecation")
+	private void writeLog(String logPath) throws IOException {
 		if (logMode == LogMode.INFO) {
 			Date current = new Date();
 			String dateTimePattern = PCMJob.DATE_TIME_LOG_FILE_PATTERN;
 			SimpleDateFormat dateFormat = new SimpleDateFormat(dateTimePattern);
 			String dateTimeOutput = dateFormat.format(current);
-			File logsFolder = new File("logs");
+			File logsFolder = new File(logPath);
 			if (!logsFolder.exists()) {
 				logsFolder.mkdir();
 			}
 			
-			String fileName = "logs/" + PCMJob.PREFIX_LOG_FILE + dateTimeOutput + PCMJob.LOG_FILE_EXTENSION;
+			String fileName = logPath + File.separator + PCMJob.PREFIX_LOG_FILE + dateTimeOutput + PCMJob.LOG_FILE_EXTENSION;
 			File file = new File(fileName);
 			try {
 				FileUtils.writeStringToFile(file, logMessage.toString());
