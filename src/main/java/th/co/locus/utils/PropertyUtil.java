@@ -15,8 +15,6 @@ public class PropertyUtil {
 		}
 		
 		// Loads configuration from application.properties.
-		ClassLoader loader = Thread.currentThread().getContextClassLoader();
-		//InputStream resourceStream = loader.getResourceAsStream("/app/batch_jar/config/application_sit.properties");
 		InputStream resourceStream = new FileInputStream(applicationPropertiesFilePath);
 		PropertyUtil.appProperties = new Properties();
 		PropertyUtil.appProperties.load(resourceStream);
