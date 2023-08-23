@@ -10,7 +10,7 @@ public class ApplicationStart {
 	 * 8 log mode (optional)
 	 */
 	public static void main(String[] args) {
-
+		int exitCode;
 		try {
 
 			if (args.length == 4 || args.length == 5) {
@@ -26,13 +26,15 @@ public class ApplicationStart {
 				}
 
 				PCMJob pcmJob = PCMJob.getInstance();
-				pcmJob.run(args[0], args[1], args[2], args[3], opt);
+				exitCode = pcmJob.run(args[0], args[1], args[2], args[3], opt);
 			} else {
 				System.out.println("parameter miss match with criteria...SYSTEM EXIT");
+				exitCode = 1;
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
+			exitCode = 1;
 		}
-
+		System.exit(exitCode);
 	}
 }

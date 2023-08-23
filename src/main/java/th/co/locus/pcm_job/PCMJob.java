@@ -35,7 +35,17 @@ public class PCMJob {
 	private static final String DATE_TIME_LOG_FILE_PATTERN = "yyyyMMddHHmmss";
 	private static final String LOG_FILE_EXTENSION = ".txt";
 
-	public void run(String procedureName, String batchParameters, String fileConfigPath, String logPath, String logOption) throws IOException {
+	/**
+	 * Execute a store procedure with a parameter list and return with exit code.
+	 * @param procedureName
+	 * @param batchParameters
+	 * @param fileConfigPath
+	 * @param logPath
+	 * @param logOption
+	 * @return
+	 * @throws IOException
+	 */
+	public int run(String procedureName, String batchParameters, String fileConfigPath, String logPath, String logOption) throws IOException {
 		
 		switch (logOption) {
 		case "--debug":
@@ -51,12 +61,19 @@ public class PCMJob {
 			System.out.println("Run with silent mode.");
 		
 		}
-		callStoredProcedure(procedureName, batchParameters, fileConfigPath);
+		int exitCode = callStoredProcedure(procedureName, batchParameters, fileConfigPath);
 		writeLog(logPath);
-
+		return exitCode;
 	}
 
-	public void callStoredProcedure(String procedureName, String batchParameters, String fileConfigPath) {
+	/**
+	 * Call a stored procedure with parameter list and return with exit code.
+	 * @param procedureName
+	 * @param batchParameters
+	 * @param fileConfigPath
+	 * @return the exit code
+	 */
+	public int callStoredProcedure(String procedureName, String batchParameters, String fileConfigPath) {
 
 		if (procedureName != null) {
 			addLogMessage("Call procuedure name : " + procedureName);
@@ -65,8 +82,6 @@ public class PCMJob {
 		}
 
 		long startTime = System.currentTimeMillis();
-
-		
 
 		Connection con = null;
 		ResultSet rs = null;
@@ -88,6 +103,7 @@ public class PCMJob {
 			e.printStackTrace();
 			addLogMessage("Error: Cannot connect database server. Please verify the connection properties. "
 					+ "Make sure that TCP connections to the port are not blocked by a firewall.");
+			return 1;
 		}
 
 		try {
@@ -137,10 +153,11 @@ public class PCMJob {
 			long endTime = System.currentTimeMillis();
 			long process_time = endTime - startTime;
 			addLogMessage("Call procedure finished in..." + process_time + " ms.");
-
+			return 0;
 		} catch (Exception e) {
 			e.printStackTrace();
 			addLogMessage(e.getMessage());
+			return 1;
 		} finally {
 			if (rs != null) {
 				try {
