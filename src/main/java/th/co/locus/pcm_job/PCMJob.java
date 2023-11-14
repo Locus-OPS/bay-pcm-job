@@ -9,13 +9,16 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Properties;
 
 import org.apache.commons.io.FileUtils;
 
 import com.microsoft.sqlserver.jdbc.StringUtils;
 
+import th.co.locus.utils.CollectionUtils;
 import th.co.locus.utils.LogMode;
 import th.co.locus.utils.PBEStringEncryptor;
 import th.co.locus.utils.PropertyUtil;
@@ -34,6 +37,8 @@ public class PCMJob {
 	private static final String PREFIX_LOG_FILE = "ccm_job_log_";
 	private static final String DATE_TIME_LOG_FILE_PATTERN = "yyyyMMddHHmmss";
 	private static final String LOG_FILE_EXTENSION = ".txt";
+	private static final String TEXT_EMIAL_RESULT_COLUMN = "RESULT";
+	private static final String REJECT_EMIAL_RESULT_COLUMN = "RESULT2";
 
 	/**
 	 * Execute a store procedure with a parameter list and return with exit code.
@@ -116,35 +121,51 @@ public class PCMJob {
 			boolean results = cstmt.execute();
 			if (results) {
 				rs = cstmt.getResultSet();
-				addLogMessage("execute result ...");
+				addLogMessage("Execute result ...");
 
-				ResultSetMetaData metadata = rs.getMetaData();
-				int totalColumns = metadata.getColumnCount();
-				String columnNames = "";
+				if (rs != null) {
+					ResultSetMetaData metadata = rs.getMetaData();
+					int totalColumns = metadata.getColumnCount();
+					String columnNames = "";
+					List<String> columnNameList = new ArrayList<>();
 
-				for (int c = 1; c <= totalColumns; c++) {
-					if (c > 1) {
-						columnNames += ", ";
-					}
-					columnNames += metadata.getColumnName(c);
-				}
-				addLogMessage(columnNames);
-
-				while (rs.next()) {
-					String text = rs.getString("RESULT");
-					EmailSender.sendEmail(text, fileConfigPath);
-					String rejectMessage = rs.getString("RESULT2");
-					if (!StringUtils.isEmpty(rejectMessage)) {
-						EmailSender.sendEmail(rejectMessage, fileConfigPath);
-					}
-					String rowData = "";
 					for (int c = 1; c <= totalColumns; c++) {
 						if (c > 1) {
-							rowData += ", ";
+							columnNames += ", ";
 						}
-						rowData += rs.getString(c);
+						String columnName = metadata.getColumnName(c);;
+						columnNames += metadata.getColumnName(c);
+						columnNameList.add(columnName);
 					}
-					addLogMessage(rowData);
+					addLogMessage(columnNames);
+
+					while (rs.next()) {
+
+						if (CollectionUtils.isExistStringInList(columnNameList, TEXT_EMIAL_RESULT_COLUMN, false)) {
+							String text = rs.getString(TEXT_EMIAL_RESULT_COLUMN);
+							if (!StringUtils.isEmpty(text)) {
+								EmailSender.sendEmail(text, fileConfigPath);
+							}
+						}
+
+						if (CollectionUtils.isExistStringInList(columnNameList, REJECT_EMIAL_RESULT_COLUMN, false)) {
+							String rejectMessage = rs.getString(REJECT_EMIAL_RESULT_COLUMN);
+							if (!StringUtils.isEmpty(rejectMessage)) {
+								EmailSender.sendEmail(rejectMessage, fileConfigPath);
+							}
+						}
+
+						String rowData = "";
+						for (int c = 1; c <= totalColumns; c++) {
+							if (c > 1) {
+								rowData += ", ";
+							}
+							rowData += rs.getString(c);
+						}
+						addLogMessage(rowData);
+					}
+				} else {
+					addLogMessage("No result to send email.");
 				}
 			} else {
 				addLogMessage("No result to send email.");

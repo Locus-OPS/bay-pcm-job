@@ -16,12 +16,15 @@ import th.co.locus.utils.EmailUtil;
 public class EmailSender {
 
 	public static void sendEmail(String text, String fileConfigPath) throws MessagingException, IOException {
+		if (StringUtils.isEmpty(text)) {
+			return;
+		}
 		Properties appProperties = PropertyUtil.getApplicationProperties(fileConfigPath);
 		String htmlFlag = appProperties.getProperty("html.flag");
 		String textSplitString = appProperties.getProperty("text.result.split.string");
-		
+
 		String[] fieldValues = text.split(textSplitString);
-		
+
 		String from = fieldValues[TextResultConfiguration.FROM.index];
 		String fromDisplayName = fieldValues[TextResultConfiguration.DISPLAY_NAME.index];
 		String tos = fieldValues[TextResultConfiguration.TO.index];
@@ -35,13 +38,9 @@ public class EmailSender {
 		String bodyFormat = fieldValues[TextResultConfiguration.BODY_FORMAT.index];
 		boolean isHtml = htmlFlag.equalsIgnoreCase(bodyFormat);
 
-		//EmailSender.sendEmail(from, fromDisplayName, toList, ccList, bccList, subject, content, htmlFlag);
-		
-		EmailUtil.sendEmail(from, fromDisplayName, toList, ccList, bccList,
-				subject, content, isHtml, fileConfigPath);
-		
+		EmailUtil.sendEmail(from, fromDisplayName, toList, ccList, bccList, subject, content, isHtml, fileConfigPath);
 	}
-    
+
     private static List<String> getReceiverList(String receivers) {
     	if (StringUtils.isEmpty(receivers)) {
     		return null;
