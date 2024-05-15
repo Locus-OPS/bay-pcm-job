@@ -224,6 +224,21 @@ public class PCMJob {
 				} catch (SQLException ex) {
 					addLogMessage(ex.getMessage());
 				}
+			}			
+			if (rs2 != null) {
+				try {
+					rs2.close();
+				} catch (SQLException ex) {
+					addLogMessage(ex.getMessage());
+
+				}
+			}
+			if (cstmt2 != null) {
+				try {
+					cstmt2.close();
+				} catch (SQLException ex) {
+					addLogMessage(ex.getMessage());
+				}
 			}
 		}
 
