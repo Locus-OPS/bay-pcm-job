@@ -91,6 +91,9 @@ public class PCMJob {
 		Connection con = null;
 		ResultSet rs = null;
 		CallableStatement cstmt = null;
+
+		ResultSet rs2 = null;
+		CallableStatement cstmt2 = null;
 		try {
 			Properties appProperties = PropertyUtil.getApplicationProperties(fileConfigPath);
 			String datasourceUrl = appProperties.getProperty("datasource.url");
@@ -174,6 +177,25 @@ public class PCMJob {
 			long endTime = System.currentTimeMillis();
 			long process_time = endTime - startTime;
 			addLogMessage("Call procedure finished in..." + process_time + " ms.");
+			
+			String sqlForQuery = "SELECT TOP 1 Processed_Status FROM batch_Log_ProcessLoad WHERE BatchName = '" + procedureName.substring(4) + "' ORDER BY CREATED_DATE DESC;";
+			addLogMessage("Start call query ..." + sqlForQuery);
+			cstmt2 = con.prepareCall(sqlForQuery);			
+			boolean results2 = cstmt2.execute();
+			if (results2) {
+				rs2 = cstmt2.getResultSet();
+				addLogMessage("Execute result ...");				
+				if (rs2 != null) {
+					while(rs2.next()) {
+						addLogMessage("Result ... " + rs2.getString("Processed_Status"));
+						if (!rs2.getString("Processed_Status").isEmpty() && !"".equals(rs2.getString("Processed_Status"))) {
+							if ("FAIL".equals(rs2.getString("Processed_Status"))) {
+								return 1;
+							}
+						}
+					}
+				}
+			}
 			return 0;
 		} catch (Exception e) {
 			e.printStackTrace();
