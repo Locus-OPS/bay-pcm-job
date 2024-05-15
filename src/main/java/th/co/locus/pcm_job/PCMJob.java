@@ -178,7 +178,15 @@ public class PCMJob {
 			long process_time = endTime - startTime;
 			addLogMessage("Call procedure finished in..." + process_time + " ms.");
 			
-			String sqlForQuery = "SELECT TOP 1 Processed_Status FROM batch_Log_ProcessLoad WHERE BatchName = '" + procedureName.substring(4) + "' ORDER BY CREATED_DATE DESC;";
+			String pureProcedureName = "";
+			if (procedureName.indexOf("dbo.") == -1) {
+				pureProcedureName = procedureName;
+			}
+			else {
+				pureProcedureName = procedureName.substring(4);
+			}
+			
+			String sqlForQuery = "SELECT TOP 1 Processed_Status FROM batch_Log_ProcessLoad WHERE BatchName = '" + pureProcedureName + "' ORDER BY CREATED_DATE DESC;";
 			addLogMessage("Start call query ..." + sqlForQuery);
 			cstmt2 = con.prepareCall(sqlForQuery);			
 			boolean results2 = cstmt2.execute();
