@@ -15,16 +15,18 @@ The JAR is intentionally minimal: it opens a JDBC connection, executes a single 
 ## Companion Docs
 
 - **[README.md](./README.md)** — public-facing overview, tech stack, quick run example.
-- **[DEPLOY.md](./DEPLOY.md)** — full Eclipse Export-Runnable-JAR procedure, Linux server requirements (Java 11+, network, file layout, permissions), troubleshooting table, and pre-deploy checklist. **Refer to this before touching build/deploy steps** — the human-facing procedure lives there, not here.
+- **[DEPLOY.md](./DEPLOY.md)** — full Eclipse Export-Runnable-JAR procedure, Linux server requirements (Java 17+, network, file layout, permissions), troubleshooting table, and pre-deploy checklist. **Refer to this before touching build/deploy steps** — the human-facing procedure lives there, not here.
 
 ## Build & Run
 
-This is a Maven project on Java 11 (`<java.version>` property, `maven-compiler-plugin` uses `<release>11</release>`, Eclipse `.classpath` and `.settings/org.eclipse.jdt.core.prefs` target `JavaSE-11`). Building requires JDK 11+. The shipped artifact is a fat JAR.
+This is a Maven project on Java 17 (`<java.version>` property, `maven-compiler-plugin` uses `<release>17</release>`). Building requires JDK 17+. The shipped artifact is a fat JAR.
+
+> Note: Eclipse `.classpath` and `.settings/org.eclipse.jdt.core.prefs` still target `JavaSE-11`. Run **Maven → Update Project** in Eclipse (or change the project's JRE container to `JavaSE-17`) before exporting the runnable JAR.
 
 **Two ways to build the JAR — note these disagree on the main class:**
 
 1. **Eclipse "Export → Runnable JAR"** — launch configuration `Main - bay-pcm-job`, which targets `th.co.locus.pcm_job.ApplicationStart`. This is how the JAR is actually produced today. Full step-by-step procedure (including post-export verification) lives in [DEPLOY.md](./DEPLOY.md) — don't re-derive it here.
-2. **`maven-shade-plugin`** in `pom.xml`: declares `th.co.locus.ccmjob.Main` as the main class — that package/class **does not exist** in the source tree. It's also nested inside `<pluginManagement>` with no matching `<plugins>` entry, so `./mvnw package` won't actually shade. If you want to switch to a Maven-driven build, fix both: move the plugin out of `<pluginManagement>` and change `mainClass` to `th.co.locus.pcm_job.ApplicationStart`.
+2. **`maven-shade-plugin`** in `pom.xml`: now sets `mainClass=th.co.locus.pcm_job.ApplicationStart`, but it is still nested inside `<pluginManagement>` with no matching `<plugins>` entry, so `./mvnw package` won't actually shade. If you want to switch to a Maven-driven build, move the plugin out of `<pluginManagement>` into a real `<plugins>` block under `<build>`.
 
 **Run the JAR (5 positional args):**
 
@@ -49,7 +51,7 @@ java -jar /app/batch_jar/bay-pcm-job.jar \
 
 **Quick smoke run from the IDE:** `th.co.locus.test.TestBatchJob#main` invokes `ApplicationStart` with hardcoded SIT-ish args.
 
-**Tests:** there are none meaningful — `src/test/java/ccm_job_3/ccm_job_3/AppTest.java` is the Maven archetype placeholder. `./mvnw test` will run it but exercises nothing.
+**Tests:** there are none. The Maven archetype `AppTest` placeholder has been removed; `src/test/java/` is empty. `./mvnw test` is a no-op until real tests are added.
 
 ## Stored Procedure Contract
 
@@ -78,5 +80,5 @@ Each environment has its own `application_<env>.properties` (template: `src/main
 ## Repo Layout Notes
 
 - `Shell_scripts/{DR_SITE,PROD,SIT,UAT}/` — per-environment wrappers ESP invokes. They hardcode `/app/batch_jar/...` paths and the matching properties file. **`external_files/Shell_scripts/...` and `external_files/Property_files/...` are the same files staged for deployment** — keep them in sync when editing.
-- `jars/` — legacy folder of third-party JARs (mssql-jdbc-jre8, jasypt, javax.mail, commons-io, activation). The runtime dependencies are now declared in `pom.xml` (commons-io, jasypt, mssql-jdbc-jre11, javax.mail, javax.activation) and resolved via Maven Central, so this folder is no longer needed for compile/build and can be deleted once the Eclipse Export-Runnable-JAR workflow is retired.
+- ~~`jars/`~~ — removed. Runtime dependencies are declared in `pom.xml` (jasypt 1.9.3, mssql-jdbc 12.8.1.jre11, jakarta.mail-api 2.1.3 + angus-mail 2.0.3, jakarta.activation-api 2.1.3, junit-jupiter 5.10.3) and resolved via Maven Central. commons-io was dropped after migrating to `java.nio.file.Files`. If you see stale references in Eclipse `.classpath`, run **Maven → Update Project**.
 - `th.co.locus.test.TestBatchJob` is a dev-only entry point — do not ship.

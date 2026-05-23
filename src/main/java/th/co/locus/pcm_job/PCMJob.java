@@ -1,23 +1,22 @@
 package th.co.locus.pcm_job;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.SQLException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
-import java.util.Properties;
-
-import org.apache.commons.io.FileUtils;
-
-import com.microsoft.sqlserver.jdbc.StringUtils;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import th.co.locus.utils.CollectionUtils;
 import th.co.locus.utils.LogMode;
@@ -29,17 +28,24 @@ public class PCMJob {
 	private PCMJob() {
 	}
 
-	public static PCMJob getInstance() {
+	public static PCMJob newInstance() {
 		return new PCMJob();
 	}
 
 	private LogMode logMode;
-	private static StringBuilder logMessage = new StringBuilder();
+	private final StringBuilder logMessage = new StringBuilder();
 	private static final String PREFIX_LOG_FILE = "ccm_job_log_";
 	private static final String DATE_TIME_LOG_FILE_PATTERN = "yyyyMMddHHmmss";
 	private static final String LOG_FILE_EXTENSION = ".txt";
 	private static final String TEXT_EMIAL_RESULT_COLUMN = "RESULT";
 	private static final String REJECT_EMIAL_RESULT_COLUMN = "RESULT2";
+
+	// Only letters, digits, underscore, and dot — enough for `dbo.MyProc` style.
+	// Identifiers are interpolated into SQL (procedure name, @param names) and
+	// cannot be bound via setString, so they must be strictly validated.
+	private static final Pattern SAFE_SQL_IDENTIFIER = Pattern.compile("[A-Za-z0-9_.]+");
+
+	private record SqlParam(String name, String value) {}
 
 	/**
 	 * Execute a store procedure with a parameter list and return with exit code.
@@ -52,20 +58,20 @@ public class PCMJob {
 	 * @throws IOException
 	 */
 	public int run(String procedureName, String batchParameters, String fileConfigPath, String logPath, String logOption) throws IOException {
-		
+
 		switch (logOption) {
-		case "--debug":
-			logMode = LogMode.DEBUG;
-			System.out.println("Run on debug mode");
-			break;
-		case "--log":
-			logMode = LogMode.INFO;
-			System.out.println("Run with log mode");
-			break;
-		default:
-			logMode = LogMode.SILENT;
-			System.out.println("Run with silent mode.");
-		
+			case "--debug" -> {
+				logMode = LogMode.DEBUG;
+				System.out.println("Run on debug mode");
+			}
+			case "--log" -> {
+				logMode = LogMode.INFO;
+				System.out.println("Run with log mode");
+			}
+			default -> {
+				logMode = LogMode.SILENT;
+				System.out.println("Run with silent mode.");
+			}
 		}
 		int exitCode = callStoredProcedure(procedureName, batchParameters, fileConfigPath);
 		writeLog(logPath);
@@ -81,125 +87,125 @@ public class PCMJob {
 	 */
 	public int callStoredProcedure(String procedureName, String batchParameters, String fileConfigPath) {
 
-		if (procedureName != null) {
-			addLogMessage("Call procuedure name : " + procedureName);
-		} else {
+		if (procedureName == null) {
 			addLogMessage("Error: Not found procedure_name on configuration !!");
+			return 1;
 		}
+		if (!SAFE_SQL_IDENTIFIER.matcher(procedureName).matches()) {
+			addLogMessage("Error: Invalid procedure name (must match " + SAFE_SQL_IDENTIFIER + "): " + procedureName);
+			return 1;
+		}
+		addLogMessage("Call procuedure name : " + procedureName);
 
 		long startTime = System.currentTimeMillis();
 
-		Connection con = null;
-		ResultSet rs = null;
-		CallableStatement cstmt = null;
-
-		ResultSet rs2 = null;
-		CallableStatement cstmt2 = null;
+		Connection con;
 		try {
-			Properties appProperties = PropertyUtil.getApplicationProperties(fileConfigPath);
-			String datasourceUrl = appProperties.getProperty("datasource.url");
-			String username = appProperties.getProperty("datasource.username");
-			String encryptedPassword = appProperties.getProperty("datasource.password.encrypted");
-			String secretKey = appProperties.getProperty("secret.key");
-			PBEStringEncryptor encryptor = new PBEStringEncryptor(secretKey);
-			String decryptedPassword = encryptor.decrypt(encryptedPassword);
-			
-			String connectionString = datasourceUrl
+			var appProperties = PropertyUtil.getApplicationProperties(fileConfigPath);
+			var datasourceUrl = appProperties.getProperty("datasource.url");
+			var username = appProperties.getProperty("datasource.username");
+			var encryptedPassword = appProperties.getProperty("datasource.password.encrypted");
+			var secretKey = appProperties.getProperty("secret.key");
+			var encryptor = new PBEStringEncryptor(secretKey);
+			var decryptedPassword = encryptor.decrypt(encryptedPassword);
+
+			var connectionString = datasourceUrl
 					+ ";user=" + username + ";password=" + decryptedPassword;
 
 			con = DriverManager.getConnection(connectionString);
 		} catch (Exception e) {
-			e.printStackTrace();
+			logException(e);
 			addLogMessage("Error: Cannot connect database server. Please verify the connection properties. "
 					+ "Make sure that TCP connections to the port are not blocked by a firewall.");
 			return 1;
 		}
 
-		try {
-			String batchParams = getStoredProcParams(batchParameters, fileConfigPath);
+		try (con) {
+			var batchParams = getStoredProcParams(batchParameters, fileConfigPath);
 
-			String sql = "exec " + procedureName + batchParams + ";";
+			var placeholders = batchParams.stream()
+					.map(p -> "@" + p.name() + "=?")
+					.collect(Collectors.joining(", "));
+			var sql = batchParams.isEmpty()
+					? "{call " + procedureName + "}"
+					: "{call " + procedureName + "(" + placeholders + ")}";
 			addLogMessage("Start call procedure ..." + sql);
-			cstmt = con.prepareCall(sql);
 
-			boolean results = cstmt.execute();
-			if (results) {
-				rs = cstmt.getResultSet();
-				addLogMessage("Execute result ...");
-
-				if (rs != null) {
-					ResultSetMetaData metadata = rs.getMetaData();
-					int totalColumns = metadata.getColumnCount();
-					String columnNames = "";
-					List<String> columnNameList = new ArrayList<>();
-
-					for (int c = 1; c <= totalColumns; c++) {
-						if (c > 1) {
-							columnNames += ", ";
-						}
-						String columnName = metadata.getColumnName(c);;
-						columnNames += metadata.getColumnName(c);
-						columnNameList.add(columnName);
-					}
-					addLogMessage(columnNames);
-
-					while (rs.next()) {
-
-						if (CollectionUtils.isExistStringInList(columnNameList, TEXT_EMIAL_RESULT_COLUMN, false)) {
-							String text = rs.getString(TEXT_EMIAL_RESULT_COLUMN);
-							if (!StringUtils.isEmpty(text)) {
-								EmailSender.sendEmail(text, fileConfigPath);
+			try (CallableStatement cstmt = con.prepareCall(sql)) {
+				for (int i = 0; i < batchParams.size(); i++) {
+					cstmt.setString(i + 1, batchParams.get(i).value());
+				}
+				boolean results = cstmt.execute();
+				if (results) {
+					try (ResultSet rs = cstmt.getResultSet()) {
+						addLogMessage("Execute result ...");
+						if (rs != null) {
+							var metadata = rs.getMetaData();
+							int totalColumns = metadata.getColumnCount();
+							var columnNameList = new ArrayList<String>();
+							for (int c = 1; c <= totalColumns; c++) {
+								columnNameList.add(metadata.getColumnName(c));
 							}
-						}
+							addLogMessage(String.join(", ", columnNameList));
 
-						if (CollectionUtils.isExistStringInList(columnNameList, REJECT_EMIAL_RESULT_COLUMN, false)) {
-							String rejectMessage = rs.getString(REJECT_EMIAL_RESULT_COLUMN);
-							if (!StringUtils.isEmpty(rejectMessage)) {
-								EmailSender.sendEmail(rejectMessage, fileConfigPath);
-							}
-						}
+							while (rs.next()) {
+								if (CollectionUtils.isExistStringInList(columnNameList, TEXT_EMIAL_RESULT_COLUMN, false)) {
+									var text = rs.getString(TEXT_EMIAL_RESULT_COLUMN);
+									if (text != null && !text.isBlank()) {
+										EmailSender.sendEmail(text, fileConfigPath);
+									}
+								}
 
-						String rowData = "";
-						for (int c = 1; c <= totalColumns; c++) {
-							if (c > 1) {
-								rowData += ", ";
+								if (CollectionUtils.isExistStringInList(columnNameList, REJECT_EMIAL_RESULT_COLUMN, false)) {
+									var rejectMessage = rs.getString(REJECT_EMIAL_RESULT_COLUMN);
+									if (rejectMessage != null && !rejectMessage.isBlank()) {
+										EmailSender.sendEmail(rejectMessage, fileConfigPath);
+									}
+								}
+
+								var rowValues = new ArrayList<String>();
+								for (int c = 1; c <= totalColumns; c++) {
+									rowValues.add(rs.getString(c));
+								}
+								addLogMessage(String.join(", ", rowValues));
 							}
-							rowData += rs.getString(c);
+						} else {
+							addLogMessage("No result to send email.");
 						}
-						addLogMessage(rowData);
 					}
 				} else {
 					addLogMessage("No result to send email.");
 				}
-			} else {
-				addLogMessage("No result to send email.");
 			}
 
 			long endTime = System.currentTimeMillis();
 			long process_time = endTime - startTime;
 			addLogMessage("Call procedure finished in..." + process_time + " ms.");
-			
-			String pureProcedureName = "";
-			if (procedureName.indexOf("dbo.") == -1) {
-				pureProcedureName = procedureName;
-			}
-			else {
-				pureProcedureName = procedureName.substring(4);
-			}
-			
-			String sqlForQuery = "SELECT TOP 1 Processed_Status FROM batch_Log_ProcessLoad WHERE BatchName = '" + pureProcedureName + "' ORDER BY CREATED_DATE DESC;";
-			addLogMessage("Start call query ..." + sqlForQuery);
-			cstmt2 = con.prepareCall(sqlForQuery);			
-			boolean results2 = cstmt2.execute();
-			if (results2) {
-				rs2 = cstmt2.getResultSet();
-				addLogMessage("Execute result ...");				
-				if (rs2 != null) {
-					while(rs2.next()) {
-						addLogMessage("Result ... " + rs2.getString("Processed_Status"));
-						if (!rs2.getString("Processed_Status").isEmpty() && !"".equals(rs2.getString("Processed_Status"))) {
-							if ("FAIL".equals(rs2.getString("Processed_Status"))) {
-								return 1;
+
+			var pureProcedureName = procedureName.indexOf("dbo.") == -1
+					? procedureName
+					: procedureName.substring(4);
+
+			var sqlForQuery = """
+					SELECT TOP 1 Processed_Status
+					FROM batch_Log_ProcessLoad
+					WHERE BatchName = ?
+					ORDER BY CREATED_DATE DESC""";
+			addLogMessage("Start call query ..." + sqlForQuery + " [BatchName=" + pureProcedureName + "]");
+
+			try (PreparedStatement pstmt2 = con.prepareStatement(sqlForQuery)) {
+				pstmt2.setString(1, pureProcedureName);
+				boolean results2 = pstmt2.execute();
+				if (results2) {
+					try (ResultSet rs2 = pstmt2.getResultSet()) {
+						addLogMessage("Execute result ...");
+						if (rs2 != null) {
+							while (rs2.next()) {
+								var processedStatus = rs2.getString("Processed_Status");
+								addLogMessage("Result ... " + processedStatus);
+								if ("FAIL".equals(processedStatus)) {
+									return 1;
+								}
 							}
 						}
 					}
@@ -207,102 +213,69 @@ public class PCMJob {
 			}
 			return 0;
 		} catch (Exception e) {
-			e.printStackTrace();
+			logException(e);
 			addLogMessage(e.getMessage());
 			return 1;
-		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (SQLException ex) {
-					addLogMessage(ex.getMessage());
-
-				}
-			}
-			if (cstmt != null) {
-				try {
-					cstmt.close();
-				} catch (SQLException ex) {
-					addLogMessage(ex.getMessage());
-				}
-			}			
-			if (rs2 != null) {
-				try {
-					rs2.close();
-				} catch (SQLException ex) {
-					addLogMessage(ex.getMessage());
-
-				}
-			}
-			if (cstmt2 != null) {
-				try {
-					cstmt2.close();
-				} catch (SQLException ex) {
-					addLogMessage(ex.getMessage());
-				}
-			}
 		}
-
 	}
-	
-	private String getStoredProcParams(String batchParameters, String fileConfigPath) throws IOException {
-		
+
+	private List<SqlParam> getStoredProcParams(String batchParameters, String fileConfigPath) throws IOException {
+
 		if ("NONE".equalsIgnoreCase(batchParameters) || "NO".equalsIgnoreCase(batchParameters)) {
-			return "";
+			return List.of();
 		}
-		
-		Properties appProperties = PropertyUtil.getApplicationProperties(fileConfigPath);
-		String batchSplitCharacter = appProperties.getProperty("batch.split.character");
-		
-		String storedProcParams = "";
-		String[] batchParameterArray = batchParameters.split(batchSplitCharacter);
+
+		var appProperties = PropertyUtil.getApplicationProperties(fileConfigPath);
+		var batchSplitCharacter = appProperties.getProperty("batch.split.character");
+
+		var params = new ArrayList<SqlParam>();
+		var batchParameterArray = batchParameters.split(batchSplitCharacter);
 		for (String batchParameter : batchParameterArray) {
-			String[] paramAndValue = batchParameter.split("=");
-			String paramName = paramAndValue[0];
-			String value = paramAndValue[1];
-			if (storedProcParams != null && !"".equals(storedProcParams)) {
-				storedProcParams += ",";
+			var paramAndValue = batchParameter.split("=", 2);
+			var paramName = paramAndValue[0];
+			var value = paramAndValue[1];
+			if (!SAFE_SQL_IDENTIFIER.matcher(paramName).matches()) {
+				throw new IllegalArgumentException("Invalid parameter name: " + paramName);
 			}
-			storedProcParams += " @" + paramName + " = '" + value + "'";
+			params.add(new SqlParam(paramName, value));
 		}
-		return storedProcParams;
+		return params;
 	}
 
 	private void addLogMessage(String newLogMessage) {
 		switch (logMode) {
-		case DEBUG:
-			System.out.println(newLogMessage);
-			break;
-		case INFO:
-			System.out.println(newLogMessage);
-			if (logMessage.toString() != null && !logMessage.toString().equals("")) {
-				logMessage.append("\n\r");
+			case DEBUG -> System.out.println(newLogMessage);
+			case INFO -> {
+				System.out.println(newLogMessage);
+				if (logMessage.length() > 0) {
+					logMessage.append("\n\r");
+				}
+				logMessage.append(newLogMessage);
 			}
-			logMessage.append(newLogMessage);
-			break;
-		default:
-			break;
+			default -> {
+				// SILENT — no output
+			}
 		}
+	}
+
+	private void logException(Throwable t) {
+		var sw = new StringWriter();
+		t.printStackTrace(new PrintWriter(sw));
+		addLogMessage(sw.toString());
 	}
 
 	private void writeLog(String logPath) throws IOException {
 		if (logMode == LogMode.INFO) {
-			Date current = new Date();
-			String dateTimePattern = PCMJob.DATE_TIME_LOG_FILE_PATTERN;
-			SimpleDateFormat dateFormat = new SimpleDateFormat(dateTimePattern);
-			String dateTimeOutput = dateFormat.format(current);
-			File logsFolder = new File(logPath);
-			if (!logsFolder.exists()) {
-				logsFolder.mkdir();
-			}
+			var dateTimeOutput = LocalDateTime.now()
+					.format(DateTimeFormatter.ofPattern(DATE_TIME_LOG_FILE_PATTERN));
+			Files.createDirectories(Path.of(logPath));
 
-			String fileName = logPath + File.separator + PCMJob.PREFIX_LOG_FILE + dateTimeOutput + PCMJob.LOG_FILE_EXTENSION;
-			File file = new File(fileName);
+			var filePath = Path.of(logPath, PREFIX_LOG_FILE + dateTimeOutput + LOG_FILE_EXTENSION);
 			try {
-				FileUtils.writeStringToFile(file, logMessage.toString(), StandardCharsets.UTF_8);
+				Files.writeString(filePath, logMessage.toString(), StandardCharsets.UTF_8);
 			} catch (IOException e) {
-				e.printStackTrace();
-				FileUtils.writeStringToFile(file, e.getMessage(), StandardCharsets.UTF_8);
+				logException(e);
+				Files.writeString(filePath, e.getMessage(), StandardCharsets.UTF_8);
 			}
 		}
 	}

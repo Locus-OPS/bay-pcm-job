@@ -19,12 +19,13 @@ ESP job  →  shell script (Shell_scripts/<ENV>/*.sh)  →  java -jar bay-pcm-jo
 
 ## Tech Stack
 
-- **Java 11** (compiler `<release>11</release>`, target JRE 11+)
-- **Maven** (build via Eclipse "Export → Runnable JAR" หรือ `mvn package`)
-- **JDBC**: `mssql-jdbc 8.4.1.jre11`
+- **Java 17** (compiler `<release>17</release>`, target JRE 17+)
+- **Maven Wrapper** 3.3.2 / Maven 3.9.9 (build via Eclipse "Export → Runnable JAR" หรือ `./mvnw package`)
+- **JDBC**: `mssql-jdbc 12.8.1.jre11`
 - **Encryption**: Jasypt 1.9.3 (`PBEWithMD5AndDES`) สำหรับ encrypt password ใน `application.properties`
-- **Email**: `javax.mail 1.6.2` + `javax.activation 1.1.1`
-- **File utils**: `commons-io 2.8.0`
+- **Email**: `jakarta.mail-api 2.1.3` + `org.eclipse.angus:angus-mail 2.0.3` + `jakarta.activation-api 2.1.3`
+- **File I/O**: `java.nio.file.Files` (JDK) — commons-io ลบทิ้งแล้วหลัง modernization
+- **Test**: `junit-jupiter 5.10.3` (JUnit 5)
 
 ---
 

@@ -6,24 +6,25 @@
 
 ## 1. Prerequisites ฝั่ง Build Machine (Eclipse / Windows)
 
-### 1.1 JDK 11
-- ติดตั้ง JDK 11 (แนะนำ Adoptium Temurin 11 หรือ OpenJDK 11)
+### 1.1 JDK 17
+- ติดตั้ง JDK 17 (แนะนำ Adoptium Temurin 17 หรือ OpenJDK 17)
 - Eclipse: **Window → Preferences → Java → Installed JREs**
-  - ต้องมี JDK 11 อยู่ในรายการ
+  - ต้องมี JDK 17 อยู่ในรายการ
   - ตั้งเป็น **default** (ติ๊กที่ checkbox)
+- ตรวจที่ project: คลิกขวา → **Properties → Java Build Path → Libraries** ให้ JRE container เป็น `JavaSE-17` (ถ้าเดิมยังเป็น `JavaSE-11` ให้ Edit แล้วเลือก 17 หรือใช้ **Maven → Update Project** ให้ pom resync)
 
 ### 1.2 Maven Dependencies sync
 หลังจากที่ project ประกาศ dependencies ใน `pom.xml` แล้ว Eclipse ต้อง resolve ให้ครบก่อน export:
 
 1. Right-click project `bay-pcm-job` → **Maven → Update Project** (หรือกด `Alt + F5`)
 2. ติ๊ก **Force Update of Snapshots/Releases** → OK
-3. รอจน Package Explorer แสดง **Maven Dependencies** ที่มี 5 jars ครบ:
-   - `commons-io-2.8.0.jar`
+3. รอจน Package Explorer แสดง **Maven Dependencies** ที่มี jars ครบ (รุ่นปัจจุบัน):
    - `jasypt-1.9.3.jar`
-   - `mssql-jdbc-8.4.1.jre11.jar`
-   - `javax.mail-1.6.2.jar`
-   - `activation-1.1.1.jar`
-4. ตรวจว่าโปรเจคไม่มี error สีแดงเหลืออยู่
+   - `mssql-jdbc-12.8.1.jre11.jar`
+   - `jakarta.mail-api-2.1.3.jar`
+   - `angus-mail-2.0.3.jar` (runtime)
+   - `jakarta.activation-api-2.1.3.jar`
+4. ตรวจว่าโปรเจคไม่มี error สีแดงเหลืออยู่ (โดยเฉพาะ import `jakarta.mail.*` ต้อง resolve ได้)
 
 ### 1.3 Launch Configuration
 ต้องมี launch config ที่ชี้ไปที่ main class ที่ถูกต้อง:
@@ -68,7 +69,7 @@ Rsrc-Main-Class: th.co.locus.pcm_job.ApplicationStart
 ```bash
 ls -lh bay-pcm-job.jar
 ```
-ควรประมาณ **4–6 MB** (ถ้าเล็กกว่า 1 MB แปลว่าไม่ได้ bundle dependencies)
+ควรประมาณ **5–7 MB** หลัง bump library (mssql-jdbc 12.8 + jakarta.mail/angus-mail ใหญ่กว่าของเดิม) — ถ้าเล็กกว่า 1 MB แปลว่าไม่ได้ bundle dependencies
 
 ### 3.3 Smoke test
 ```bash
@@ -81,29 +82,29 @@ java -jar bay-pcm-job.jar dbo.NotExist None /tmp/dummy.properties /tmp --log
 
 ## 4. Requirements ฝั่ง Linux Server
 
-### 4.1 Java Runtime — ต้องเป็น Java 11 ขึ้นไป
+### 4.1 Java Runtime — ต้องเป็น Java 17 ขึ้นไป
 
 ตรวจ version ที่ server:
 ```bash
 java -version
 ```
-ต้องขึ้น `11.x.x` หรือสูงกว่า
+ต้องขึ้น `17.x.x` หรือสูงกว่า
 
-ถ้ายังเป็น Java 8 จะรันไม่ได้ — error:
+ถ้ายังเป็น Java 8 / 11 จะรันไม่ได้ — error (class file version 61.0 = Java 17):
 ```
 java.lang.UnsupportedClassVersionError:
   th/co/locus/pcm_job/ApplicationStart has been compiled by a more recent version
-  of the Java Runtime (class file version 55.0), this version of the Java Runtime
-  only recognizes class file versions up to 52.0
+  of the Java Runtime (class file version 61.0), this version of the Java Runtime
+  only recognizes class file versions up to 55.0
 ```
 
-ติดตั้ง JDK 11:
+ติดตั้ง JDK 17:
 ```bash
 # RHEL / CentOS / Oracle Linux
-sudo yum install java-11-openjdk
+sudo yum install java-17-openjdk
 
 # Ubuntu / Debian
-sudo apt update && sudo apt install openjdk-11-jdk
+sudo apt update && sudo apt install openjdk-17-jdk
 
 # ตรวจหลังติดตั้ง
 java -version
@@ -215,7 +216,7 @@ java -jar /app/batch_jar/bay-pcm-job.jar \
 
 | อาการ | สาเหตุที่พบบ่อย | วิธีตรวจ/แก้ |
 |---|---|---|
-| `UnsupportedClassVersionError` (class file version 55.0) | Server ยังเป็น Java 8 | `java -version` → ติดตั้ง JDK 11 |
+| `UnsupportedClassVersionError` (class file version 61.0) | Server ยังเป็น Java 8 / 11 | `java -version` → ติดตั้ง JDK 17 |
 | `NoClassDefFoundError` / `ClassNotFoundException` | Export ไม่ได้เลือก "Package required libraries" | Export JAR ใหม่ |
 | `bad interpreter: No such file or directory` ตอนรัน .sh | Shell script เป็น CRLF (Windows line endings) | `dos2unix script.sh` |
 | `Cannot connect database server` | Network / firewall / wrong credentials / encrypted password ใช้ secret.key ผิด | ตรวจ `application_*.properties` และ `nc -zv <host> <port>` |
@@ -228,12 +229,12 @@ java -jar /app/batch_jar/bay-pcm-job.jar \
 ## 7. Checklist สรุปก่อน Deploy
 
 - [ ] Eclipse: Maven → Update Project แล้ว ไม่มี error
-- [ ] Eclipse: ใช้ JRE 11 เป็น default
+- [ ] Eclipse: ใช้ JRE 17 เป็น default (project JRE container = `JavaSE-17`)
 - [ ] Launch configuration `Main - bay-pcm-job` ชี้ที่ `th.co.locus.pcm_job.ApplicationStart`
 - [ ] Export Runnable JAR ด้วย option "Package required libraries into generated JAR"
-- [ ] ขนาด JAR อยู่ระหว่าง 4–6 MB
+- [ ] ขนาด JAR อยู่ระหว่าง 5–7 MB
 - [ ] Smoke test JAR ที่ build machine ผ่าน (ไม่เจอ `NoClassDefFoundError`)
-- [ ] Linux server มี Java 11+ (`java -version`)
+- [ ] Linux server มี Java 17+ (`java -version`)
 - [ ] Server connect ไปยัง SQL Server และ SMTP host ได้
 - [ ] Folder `/app/batch_jar/config/`, `/app/batch_jar/shell_scripts/<ENV>/logs/` มีอยู่และ permission ถูกต้อง
 - [ ] Properties file ของ environment นั้นๆ มี encrypted password ที่ถูก encrypt ด้วย `secret.key` ใน file เดียวกัน

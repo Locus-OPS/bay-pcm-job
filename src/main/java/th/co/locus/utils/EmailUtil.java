@@ -4,11 +4,11 @@ import java.util.Date;
 import java.util.List;
 import java.util.Properties;
 
-import javax.mail.Session;
-import javax.mail.Transport;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
-import javax.mail.internet.MimeMessage.RecipientType;
+import jakarta.mail.Session;
+import jakarta.mail.Transport;
+import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMessage.RecipientType;
 
 public class EmailUtil {
 	/**
@@ -36,7 +36,7 @@ public class EmailUtil {
 			msg.addHeader("Content-Transfer-Encoding", "8bit");
 
 			// Set from address.
-			if (fromName != null) {
+			if (fromName == null) {
 				msg.setFrom(new InternetAddress(fromAddress));
 			} else {
 				msg.setFrom(new InternetAddress(fromAddress, fromName));

@@ -25,7 +25,7 @@ public class ApplicationStart {
 					System.out.println("call pcm procedure without option");
 				}
 
-				PCMJob pcmJob = PCMJob.getInstance();
+				PCMJob pcmJob = PCMJob.newInstance();
 				exitCode = pcmJob.run(args[0], args[1], args[2], args[3], opt);
 			} else {
 				System.out.println("parameter miss match with criteria...SYSTEM EXIT");
