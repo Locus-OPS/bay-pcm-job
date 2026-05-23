@@ -2,6 +2,7 @@ package th.co.locus.pcm_job;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -284,7 +285,6 @@ public class PCMJob {
 		}
 	}
 
-	@SuppressWarnings("deprecation")
 	private void writeLog(String logPath) throws IOException {
 		if (logMode == LogMode.INFO) {
 			Date current = new Date();
@@ -295,14 +295,14 @@ public class PCMJob {
 			if (!logsFolder.exists()) {
 				logsFolder.mkdir();
 			}
-			
+
 			String fileName = logPath + File.separator + PCMJob.PREFIX_LOG_FILE + dateTimeOutput + PCMJob.LOG_FILE_EXTENSION;
 			File file = new File(fileName);
 			try {
-				FileUtils.writeStringToFile(file, logMessage.toString());
+				FileUtils.writeStringToFile(file, logMessage.toString(), StandardCharsets.UTF_8);
 			} catch (IOException e) {
 				e.printStackTrace();
-				FileUtils.writeStringToFile(file, e.getMessage());
+				FileUtils.writeStringToFile(file, e.getMessage(), StandardCharsets.UTF_8);
 			}
 		}
 	}
