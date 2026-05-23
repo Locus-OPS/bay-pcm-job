@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import jakarta.mail.MessagingException;
+
 import th.co.locus.utils.CollectionUtils;
 import th.co.locus.utils.LogMode;
 import th.co.locus.utils.PBEStringEncryptor;
@@ -152,14 +154,24 @@ public class PCMJob {
 								if (CollectionUtils.isExistStringInList(columnNameList, TEXT_EMIAL_RESULT_COLUMN, false)) {
 									var text = rs.getString(TEXT_EMIAL_RESULT_COLUMN);
 									if (text != null && !text.isBlank()) {
-										EmailSender.sendEmail(text, fileConfigPath);
+										try {
+											EmailSender.sendEmail(text, fileConfigPath);
+										} catch (MessagingException | IOException e) {
+											addLogMessage("Error: Failed to send email for " + TEXT_EMIAL_RESULT_COLUMN + ": " + e.getMessage());
+											logException(e);
+										}
 									}
 								}
 
 								if (CollectionUtils.isExistStringInList(columnNameList, REJECT_EMIAL_RESULT_COLUMN, false)) {
 									var rejectMessage = rs.getString(REJECT_EMIAL_RESULT_COLUMN);
 									if (rejectMessage != null && !rejectMessage.isBlank()) {
-										EmailSender.sendEmail(rejectMessage, fileConfigPath);
+										try {
+											EmailSender.sendEmail(rejectMessage, fileConfigPath);
+										} catch (MessagingException | IOException e) {
+											addLogMessage("Error: Failed to send email for " + REJECT_EMIAL_RESULT_COLUMN + ": " + e.getMessage());
+											logException(e);
+										}
 									}
 								}
 
@@ -182,9 +194,9 @@ public class PCMJob {
 			long process_time = endTime - startTime;
 			addLogMessage("Call procedure finished in..." + process_time + " ms.");
 
-			var pureProcedureName = procedureName.indexOf("dbo.") == -1
-					? procedureName
-					: procedureName.substring(4);
+			var pureProcedureName = procedureName.startsWith("dbo.")
+					? procedureName.substring(4)
+					: procedureName;
 
 			var sqlForQuery = """
 					SELECT TOP 1 Processed_Status

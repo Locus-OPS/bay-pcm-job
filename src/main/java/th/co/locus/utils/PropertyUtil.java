@@ -3,23 +3,27 @@ package th.co.locus.utils;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PropertyUtil {
 
-	private static Properties appProperties = null;
+	// Cache keyed by file path so a single JVM can load multiple properties files
+	// without colliding. Each path is read from disk once and reused thereafter.
+	private static final Map<String, Properties> CACHE = new ConcurrentHashMap<>();
 
 	public static Properties getApplicationProperties(String applicationPropertiesFilePath) throws IOException {
-		if (PropertyUtil.appProperties != null) {
-			return PropertyUtil.appProperties;
+		var cached = CACHE.get(applicationPropertiesFilePath);
+		if (cached != null) {
+			return cached;
 		}
 
-		// Loads configuration from application.properties.
 		var props = new Properties();
 		try (var resourceStream = Files.newInputStream(Path.of(applicationPropertiesFilePath))) {
 			props.load(resourceStream);
 		}
-		PropertyUtil.appProperties = props;
-		return PropertyUtil.appProperties;
+		CACHE.put(applicationPropertiesFilePath, props);
+		return props;
 	}
 }

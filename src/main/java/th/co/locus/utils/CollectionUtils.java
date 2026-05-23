@@ -29,16 +29,7 @@ public class CollectionUtils {
 			return false;
 		}
 
-		for (int i = 0; i < list.size(); i++) {
-			String string = list.get(i);
-			if (ignoreCase && inputString.equalsIgnoreCase(string)) {
-				return true;
-			}
-			if (!ignoreCase && inputString.equals(string)) {
-				return true;
-			}
-		}
-
-		return false;
+		return list.stream()
+				.anyMatch(s -> ignoreCase ? inputString.equalsIgnoreCase(s) : inputString.equals(s));
 	}
 }

@@ -1,142 +1,143 @@
-# Upgrade Notes — Post Java 17 (OpenRewrite) Review
+# Upgrade Notes — Post Java 21 (OpenRewrite) Review
 
-หลังจาก upgrade เป็น Java 17 ด้วย OpenRewrite แล้ว เอกสารนี้รวมรายการ **library ที่ควร upgrade ต่อ**, **code ที่ควร modernize**, และ **bug / security issue** ที่พบระหว่างทบทวน source
+หลังจาก upgrade เป็น Java 21 ด้วย OpenRewrite (`org.openrewrite.java.migrate.UpgradeToJava21`) แล้ว เอกสารนี้รวมรายการ **library ที่ควร upgrade ต่อ**, **code ที่ควร modernize**, และ **bug / security issue** ที่ยังเหลือ
 
-> Scope: ครอบคลุม `pom.xml`, `src/main/java/**`, `src/test/java/**`, `src/main/resources/application.properties`
+> Scope: ครอบคลุม `pom.xml`, `src/main/java/**`, `src/main/resources/application.properties`, เอกสาร (`CLAUDE.md`, `DEPLOY.md`, `README.md`)
 
 ---
 
-## A. Libraries ที่ควร upgrade
+## สถานะปัจจุบัน (ที่ทำไปแล้วในรอบ Java 17 → 21)
 
-| Dependency | ปัจจุบัน | แนะนำ | เหตุผล |
+- `pom.xml` → `java.version=21`, `<release>21</release>`
+- `.classpath` / `.settings/org.eclipse.jdt.core.prefs` → `JavaSE-21`, compliance/source/target = 21
+- Phase 1–4 ของ UPGRADE_NOTES รอบเก่าเสร็จแล้ว: try-with-resources, switch expression, `java.time`, `Files` API, text blocks, `var`, `List.of()`, แก้ SQL injection (`{call proc(?, ?)}` + `setString`), แก้ `EmailUtil` from-name logic, ย้าย `javax.mail` → `jakarta.mail`, ย้าย `javax.activation` → `jakarta.activation`, ลบ `commons-io`, ลบ `jars/`, migrate JUnit 5
+
+---
+
+## A. Libraries ที่ควร bump ต่อ ✅ (เสร็จแล้ว)
+
+| Dependency | ก่อน | หลัง | สถานะ |
 |---|---|---|---|
-| `com.microsoft.sqlserver:mssql-jdbc` | `8.4.1.jre11` | `12.8.1.jre11` (หรือ classifier `jre17`) | 8.4.x ตกรุ่นไปนาน, มี security patch + รองรับ TLS 1.3 / `encrypt=true` ของ MSSQL ยุคใหม่ |
-| `commons-io` | `2.8.0` | `2.16.1`+ **หรือ ลบทิ้ง** | แก้ CVE-2024-47554 และอื่นๆ. ถ้าเปลี่ยนไปใช้ `java.nio.file.Files.writeString` (Java 11+) จะตัด dependency นี้ออกได้เลย |
-| `com.sun.mail:javax.mail` | `1.6.2` | `jakarta.mail:jakarta.mail-api` + `org.eclipse.angus:angus-mail` `2.0.3` | `javax.mail` หยุดพัฒนา; Jakarta Mail คือทายาท (ต้องเปลี่ยน `import javax.mail.*` → `jakarta.mail.*`) |
-| `javax.activation:activation` | `1.1.1` | `jakarta.activation:jakarta.activation-api` `2.1.x` | Java 11+ เอา `javax.activation` ออกจาก JDK แล้ว |
-| `org.jasypt:jasypt` | `1.9.3` | คงเดิม | เวอร์ชันยัง maintain อยู่ — แต่ดู section C: **อัลกอริทึมอ่อนแอ** ควรเปลี่ยน |
-| `junit:junit` | `4.11` | `org.junit.jupiter:junit-jupiter` `5.10.x` | JUnit 4.11 มี CVE-2020-15250 (TemporaryFolder); JUnit 5 รองรับ Java 17 เต็มที่ |
-| `maven-surefire-plugin` | `2.22.1` | `3.2.5` | ต้องการ 3.x เพื่อรัน JUnit 5 และทำงานกับ Java 17 module path ได้ดี |
-| `maven-jar-plugin` | `3.0.2` | `3.4.x` | bump ตามรอบ |
-| `maven-install-plugin` | `2.5.2` | `3.1.x` | 2.x มี warning กับ Maven ใหม่ |
-| `maven-deploy-plugin` | `2.8.2` | `3.1.x` | bump ตามรอบ |
-| `maven-resources-plugin` | `3.0.2` | `3.3.x` | bump ตามรอบ |
-| `maven-clean-plugin` | `3.1.0` | `3.3.x` | bump ตามรอบ |
-| `maven-site-plugin` | `3.7.1` | `3.12.x` | bump ตามรอบ |
-| Maven Wrapper | `0.5.6` / Maven `3.6.3` | wrapper `3.3.x` / Maven `3.9.x` | Maven 3.6 ไม่ test กับ Java 17 อย่างเป็นทางการ |
-| `rewrite-maven-plugin` + `rewrite-migrate-java` | `6.40.0` / `3.35.0` | **ลบทิ้ง** ถ้า migration เสร็จแล้ว | หรือเก็บไว้ bump ตอนทำ Java 21 รอบหน้า |
-
-### หมายเหตุเพิ่มเติม
-- **Folder `jars/`** (activation-1.1, commons-io-2.8.0, jasypt-1.9.0, javax.mail-1.6.1, mssql-jdbc-8.4.1.jre8) — `CLAUDE.md` ระบุไว้แล้วว่า **ลบได้** เพราะ resolve ผ่าน Maven Central หมดแล้ว
-- **`maven-shade-plugin`** ตอนนี้อยู่ใน `<pluginManagement>` และ `mainClass=th.co.locus.ccmjob.Main` (ไม่มีอยู่จริง) → ถ้าจะเปลี่ยนมา build ด้วย Maven จริง ให้ย้ายออกจาก `<pluginManagement>` และแก้ `mainClass` เป็น `th.co.locus.pcm_job.ApplicationStart`
+| `com.microsoft.sqlserver:mssql-jdbc` | `12.8.1.jre11` | `12.10.1.jre11` | ✅ bumped |
+| `org.junit.jupiter:junit-jupiter` | `5.10.3` | `5.13.4` | ✅ bumped (โปรเจ็กต์ยังไม่มี test แต่พร้อมเขียนแล้ว) |
+| `org.eclipse.angus:angus-mail` | `2.0.3` | `2.0.4` | ✅ bumped |
+| `maven-shade-plugin` | `3.5.3` | `3.6.0` | ✅ bumped (ยังคงอยู่ใน `<pluginManagement>` — การย้ายออกเป็นเรื่องเปลี่ยน build path จาก Eclipse Export → Maven shade แยกทำเมื่อพร้อม) |
+| `org.openrewrite.maven:rewrite-maven-plugin` + `rewrite-migrate-java` | `6.40.0` / `3.35.0` | **ลบทิ้ง** | ✅ removed (migration เสร็จแล้ว) |
+| `jakarta.mail:jakarta.mail-api` | `2.1.3` | คงเดิม | — ยังเป็น stable ล่าสุดของสาย Jakarta EE 10 |
+| `jakarta.activation:jakarta.activation-api` | `2.1.3` | คงเดิม | — ยังเป็น stable ล่าสุด |
+| `org.jasypt:jasypt` | `1.9.3` | คงเดิม | — latest แล้ว (ดู section B4: **อัลกอริทึมที่เลือกอ่อนแอ**) |
 
 ---
 
-## B. Code modernization (Java 11 / 17 idioms)
+## B. Bug / Issue ที่ยังเหลือในโค้ด
 
-| # | จุดที่แก้ | จาก | เป็น |
-|---|---|---|---|
-| B1 | `PCMJob.java:20`, `EmailSender.java:10`, `CollectionUtils.java:5` ใช้ `com.microsoft.sqlserver.jdbc.StringUtils` (**internal class**) | `StringUtils.isEmpty(x)` | `x == null \|\| x.isBlank()` (Java 11+) — internal class อาจหายตอน bump driver |
-| B2 | `PCMJob.callStoredProcedure` — manual try/finally 4 resource | `try { ... } finally { rs.close(); ... }` | **try-with-resources** ครอบ Connection / CallableStatement / ResultSet |
-| B3 | `PCMJob.run`, `PCMJob.addLogMessage` — classic switch + break | `switch (x) { case "a": ...; break; }` | **switch expression** (Java 14+) `switch (x) { case "a" -> ...; }` |
-| B4 | `PCMJob.java:290-293` — `SimpleDateFormat` + `new Date()` | `new SimpleDateFormat(pattern).format(new Date())` | `LocalDateTime.now().format(DateTimeFormatter.ofPattern(pattern))` (thread-safe) |
-| B5 | `PCMJob.java:294-297` — `new File(path).mkdir()` (ไม่ check return) | `if (!folder.exists()) folder.mkdir();` | `Files.createDirectories(Path.of(logPath))` |
-| B6 | `PropertyUtil.java:18` — `FileInputStream` | `new FileInputStream(path)` | `Files.newInputStream(Path.of(path))` + try-with-resources |
-| B7 | `PCMJob.java:302,305` — commons-io `FileUtils.writeStringToFile` | `FileUtils.writeStringToFile(file, msg, UTF_8)` | `Files.writeString(path, msg, StandardCharsets.UTF_8)` — ทำให้ตัด `commons-io` ทิ้งได้ |
-| B8 | `PCMJob.java:137-143, 162-168` — String concat ใน loop | `columnNames += ", " + name;` | `StringBuilder` หรือ `String.join(", ", list)` |
-| B9 | `EmailSender.getReceiverList` คืน `null` | `return null;` | `return List.of();` / `Collections.emptyList()` (กัน NPE) |
-| B10 | `PCMJob.java:121, 190` — SQL string ยาว | `"exec " + proc + params + ";"` | **Text blocks** (Java 15+) `"""..."""` |
-| B11 | local variables ทั่วๆ ไป | `Properties appProperties = ...` | ใช้ `var` (Java 10+) ในจุดที่ type ชัดเจน |
-| B12 | logging — กระจาย `System.out.println` + `e.printStackTrace()` | print ดิบ | ใช้ `java.util.logging` หรือเพิ่ม SLF4J + Logback |
+### 🟠 High ✅ (เสร็จแล้ว B1-B3)
 
----
-
-## C. Bugs / Security ที่พบ (ควรแก้ตอนนี้)
-
-### 🔴 Critical
-
-**C1. SQL Injection ใน `PCMJob.callStoredProcedure`** (`PCMJob.java:121`)
+**B1. `PCMJob.java:185-187` — strip prefix `dbo.` ผิด** ✅ FIXED
 ```java
-String sql = "exec " + procedureName + batchParams + ";";
-cstmt = con.prepareCall(sql);
+// before
+var pureProcedureName = procedureName.indexOf("dbo.") == -1
+        ? procedureName
+        : procedureName.substring(4);
+// after
+var pureProcedureName = procedureName.startsWith("dbo.")
+        ? procedureName.substring(4)
+        : procedureName;
 ```
-ESP เป็น trusted source ก็จริง แต่ `batchParameters` มาจาก argv → ถ้าใครรัน shell มือก็ใส่ payload ได้
-→ เปลี่ยนเป็น `con.prepareCall("{call dbo.proc(?, ?)}")` + `cstmt.setString(i, value)`
+เดิมถ้า procedure ชื่อมี `dbo.` อยู่ตรงกลาง (เช่น `xyzdbo.proc`) → `indexOf("dbo.")=3` → `substring(4)` คืน `bo.proc` → ค้น `batch_Log_ProcessLoad` ไม่เจอ → exit 0 ผิด
 
-**C2. Logic bug ใน `EmailUtil.java:39-43`** (เงื่อนไขกลับด้าน)
+**B2. `EmailUtil.java:26-28` — mutate system properties ทั่ว JVM** ✅ FIXED
 ```java
-if (fromName != null) {
-    msg.setFrom(new InternetAddress(fromAddress));        // ทิ้ง name
-} else {
-    msg.setFrom(new InternetAddress(fromAddress, fromName)); // ส่ง null name
+// before
+Properties emailSessionProps = System.getProperties();
+emailSessionProps.put("mail.smtp.host", smtpHostServer);
+// after
+Properties emailSessionProps = new Properties();
+emailSessionProps.put("mail.smtp.host", smtpHostServer);
+```
+`System.getProperties()` คืน reference จริง — การ `put` เป็นการแก้ global state ของ JVM
+
+**B3. `EmailUtil.java:77-79` — swallow exception** ✅ FIXED
+```java
+// before — สวบทุก exception แล้ว printStackTrace
+} catch (Exception e) {
+    e.printStackTrace();
 }
+// after — เปลี่ยน method signature เป็น `throws MessagingException, IOException`
+// และ caller ใน PCMJob ครอบ try-catch รอบ EmailSender.sendEmail() แล้ว
+// log ผ่าน addLogMessage + logException แทน, ไม่ kill batch
 ```
-→ สลับเงื่อนไข `if (fromName == null) ... else ...`
+behavior change: email failure ตอนนี้ปรากฏใน log (ผ่าน `addLogMessage`) แต่ไม่ได้ทำให้ exit code = 1 — exit code ยังคง driven by `Processed_Status` จาก `batch_Log_ProcessLoad` ตามเดิม. การประมวลผล result rows อื่นๆ ก็ยังดำเนินต่อ.
 
-### 🟠 High
+### 🔴 Security
 
-**C3. อัลกอริทึม encryption อ่อนแอ** (`PBEStringEncryptor.java:11`)
-- `PBEWithMD5AndDES` = MD5 (broken) + DES (56-bit, broken)
-- `secret.key` เก็บ plaintext **ในไฟล์เดียวกับ ciphertext** (`application_<env>.properties`)
-→ พิจารณา `PBEWithHmacSHA512AndAES_256` (Jasypt 1.9.3 รองรับ) + ย้าย `secret.key` ไป env var / vault แล้ว rotate ciphertext ทั้งหมด
+**B4. Jasypt ยังใช้ `PBEWithMD5AndDES`** (`PBEStringEncryptor.java:11`)
+- MD5 broken + DES key 56-bit แตกหมดแล้ว
+- `secret.key` plaintext วางในไฟล์เดียวกับ ciphertext (`application_<env>.properties`) → ใครอ่าน config ได้ก็ decrypt password ได้
+→ เปลี่ยนเป็น `PBEWithHmacSHA512AndAES_256` (Jasypt 1.9.3 รองรับ) + ย้าย `secret.key` ไป env var / secret manager + re-encrypt password ทุก environment
 
-**C4. `logMessage` เป็น `static StringBuilder`** (`PCMJob.java:37`)
-- ค้าง state ระหว่าง run ถ้ามีการเรียกใน same JVM, ไม่ thread-safe
-→ เปลี่ยนเป็น instance field
+### 🟡 Medium / Known caveat
 
-### 🟡 Medium / Low
+**B5. `PropertyUtil.appProperties` static cache** ✅ FIXED
+- ก่อน: `private static Properties appProperties = null;` — JVM-wide field, lock เข้ากับไฟล์แรกที่โหลด
+- หลัง: `private static final Map<String, Properties> CACHE = new ConcurrentHashMap<>();` — cache แยกตาม file path
+- พฤติกรรมใหม่: path เดิม → reuse cache (เหมือนเดิม); path ต่างกัน → instance แยก, ไม่ collide
+- ข้อจำกัดที่ยังเหลือ: ไฟล์ที่ถูก mutate บน disk ระหว่าง run จะไม่ถูก re-read (cache ไม่มี TTL) — เป็น trade-off ที่ตั้งใจให้เร็ว, CLAUDE.md อัพเดตแล้ว
 
-**C5. `getInstance()` ที่ return `new PCMJob()` ทุกครั้ง** (`PCMJob.java:32`)
-- ชื่อชวนเข้าใจผิดว่าเป็น singleton
-→ เปลี่ยนชื่อเป็น `create()` / `newInstance()` หรือทำให้เป็น singleton จริง
+---
 
-**C6. Redundant check** (`PCMJob.java:200`)
-```java
-if (!rs2.getString("Processed_Status").isEmpty()
-    && !"".equals(rs2.getString("Processed_Status"))) {
-```
-→ เงื่อนไขเดียวกันสองครั้ง — ตัดอันที่สองทิ้ง และ cache ค่าใน local variable
+## C. Code modernization ที่ Java 21 เปิดให้ทำ
 
-**C7. `TestBatchJob.java` ใช้ signature 8 args เก่า**
-```java
-String[] params = { "dbo.TEST_batch", "DataDate=...", "192.168.10.182", "1433",
-                    "BAY_CONSENT_DEV", "sa", "Locus@123", "--log" };
-```
-→ `ApplicationStart` รับแค่ 4–5 args แล้ว — รันไม่ได้ ควร sync หรือลบทิ้ง (CLAUDE.md บอกว่า dev-only)
+ส่วนใหญ่ Java 17 idiom ที่ทำไปแล้วครอบคลุมหมด Java 21 มีของใหม่ที่ **ใช้ได้แต่ไม่จำเป็นกับ codebase นี้**:
 
-**C8. `AppTest` เป็น placeholder ของ Maven archetype**
-→ ลบ หรือเขียน test จริงด้วย JUnit 5
+| Feature | สถานะกับโค้ดนี้ |
+|---|---|
+| **Pattern matching for switch** (final ใน 21) | switch บน `String` ตรงๆ ใน `PCMJob.run` ไม่มี type hierarchy ที่ได้ประโยชน์ — ข้าม |
+| **Record patterns** (final ใน 21) | `SqlParam` ถูก destructure ผ่าน accessor `.name()/.value()` ในที่เดียว ไม่อยู่ใน switch — ข้าม |
+| **Sequenced collections** (`getFirst()`/`getLast()`) | โค้ดไม่ได้ใช้ `.get(0)` / `.get(size-1)` ที่ไหน — ข้าม |
+| **Virtual threads** | งานเป็น single batch ต่อ JVM, ไม่เกี่ยว — ข้าม |
+| **String templates** | ใน 21 ยัง preview และ Java 23 ถอด feature ออก — **ห้ามใช้** |
 
-**C9. `metadata.getColumnName(c);;`** (`PCMJob.java:140`)
-→ double semicolon — cosmetic
+ที่ทำได้จริง:
+
+| # | จุดที่แก้ | จาก | เป็น | สถานะ |
+|---|---|---|---|---|
+| C1 | `TextResultConfiguration.index` เป็น `Integer` | `public final Integer index;` | `public final int index;` ตัด autoboxing ทุกครั้งที่อ่าน | ✅ DONE |
+| C2 | `CollectionUtils.isExistStringInList` for loop + 2 branch | `for (int i = 0; ...) { if (ignoreCase && ...) ...; if (!ignoreCase && ...) ...; }` | `return list.stream().anyMatch(s -> ignoreCase ? inputString.equalsIgnoreCase(s) : inputString.equals(s));` | ✅ DONE |
+| C3 | Logging กระจาย `System.out.println` + `e.printStackTrace()` | print ดิบ + custom `LogMode` (SILENT/DEBUG/INFO) | SLF4J + Logback (ต้องตัดสินใจว่าจะคง args `--log`/`--debug` ไหม) | ⏸ DEFERRED |
+
+---
+
+## D. เอกสาร — sync Java 17 → Java 21 ✅ (เสร็จแล้ว)
+
+| ไฟล์ | แก้แล้ว |
+|---|---|
+| `CLAUDE.md` | "Java 17" / "JDK 17+" → "Java 21" / "JDK 21+"; ลบ note เก่าเรื่อง `.classpath` ยังอยู่ที่ `JavaSE-11` (sync เป็น `JavaSE-21` แล้ว); bump version list ใน Repo Layout (mssql-jdbc 12.10.1, angus-mail 2.0.4, junit-jupiter 5.13.4); อัพเดต PropertyUtil caveat (per-path cache) |
+| `DEPLOY.md` | 1.1 JDK 21 + Adoptium Temurin 21 / OpenJDK 21; jar รายชื่อใน 1.2 bump version; 3.2 ข้อความขนาด JAR (12.10); 4.1 Java 21 / class file version **65.0** / `openjdk-21-jdk`; Troubleshooting row Java 21; Checklist Java 21 |
+| `README.md` | Tech Stack Java 21, mssql-jdbc 12.10.1.jre11, angus-mail 2.0.4, junit-jupiter 5.13.4 |
+
+หลัง bump Java 21 → class file version = **65.0** (ไม่ใช่ 61.0) — error message ใน DEPLOY.md อัพเดตให้ตรง
 
 ---
 
 ## ลำดับ implement ที่แนะนำ
 
-1. **Phase 1 — Quick wins (ไม่ break runtime):**
-   - ลบ folder `jars/`
-   - แก้ bug C1 (SQL injection), C2 (email logic), C6 (redundant check), C9 (semicolon)
-   - แก้ `TestBatchJob` (C7) หรือลบทิ้ง
-2. **Phase 2 — Library bump (compatible):**
-   - bump mssql-jdbc → 12.8.x
-   - bump commons-io → 2.16+ (ถ้ายังเก็บไว้)
-   - bump junit → 4.13.2 หรือ migrate JUnit 5
-   - bump maven plugins ทั้งหมด
-   - bump Maven Wrapper
-3. **Phase 3 — Code modernization:**
-   - แทน `MSSQL StringUtils` ด้วย `String.isBlank()` (B1)
-   - try-with-resources (B2)
-   - switch expression (B3)
-   - `java.time` (B4)
-   - `Files` API (B5, B6, B7) → **ตัด commons-io ทิ้งได้**
-   - StringBuilder / `String.join` (B8)
-   - return `List.of()` (B9)
-4. **Phase 4 — Breaking changes:**
-   - Migrate `javax.mail` → `jakarta.mail` (เปลี่ยน import ทั้งหมด, bump JDK ก็ยังต้องทำ)
-   - Migrate `javax.activation` → `jakarta.activation`
-   - Migrate Jasypt algorithm (C3) — ต้อง re-encrypt password ทุก environment
-5. **Phase 5 — Cleanup:**
-   - ลบ `rewrite-maven-plugin` (ถ้า migration เสร็จ)
-   - ลบ `AppTest` placeholder (C8)
-   - พิจารณาเพิ่ม SLF4J + Logback แทน `System.out`
+1. **Phase 1 — Bug fix ที่กระทบ runtime (ทำก่อน):** ✅ เสร็จแล้ว
+   - B1 (strip `dbo.` prefix) ✅
+   - B2 (`System.getProperties()` mutation) ✅
+   - B3 (email exception swallowed) ✅
+2. **Phase 2 — Library bump (compatible):** ✅ เสร็จแล้ว
+   - `mssql-jdbc` → `12.10.1.jre11` ✅
+   - `angus-mail` → `2.0.4` ✅
+   - `junit-jupiter` → `5.13.4` ✅
+   - `maven-shade-plugin` → `3.6.0` ✅ (ยังอยู่ใน `<pluginManagement>` — ย้ายออกเมื่อพร้อมเปลี่ยน build path)
+   - ลบ `rewrite-maven-plugin` + `rewrite-migrate-java` ✅
+3. **Phase 3 — Code cleanup (optional):**
+   - C1 `Integer` → `int`
+   - C2 stream `anyMatch`
+4. **Phase 4 — Doc sync:**
+   - `CLAUDE.md`, `DEPLOY.md`, `README.md` → Java 21
+5. **Phase 5 — Security / Long-term:**
+   - B4 Jasypt algorithm + secret externalization (กระทบทุก env ต้อง re-encrypt)
+   - C3 SLF4J + Logback
+   - เริ่มเขียน JUnit 5 test จริง แล้วค่อย bump `junit-jupiter` → 5.13.x

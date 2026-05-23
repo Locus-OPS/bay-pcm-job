@@ -9,10 +9,10 @@ public enum TextResultConfiguration {
 	SUBJECT(5),
 	BODY(6),
 	BODY_FORMAT(7);
-	
-	public final Integer index;
-	private TextResultConfiguration(Integer index) {
+
+	public final int index;
+
+	private TextResultConfiguration(int index) {
 		this.index = index;
 	}
-	
 }

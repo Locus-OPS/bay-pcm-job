@@ -15,13 +15,13 @@ The JAR is intentionally minimal: it opens a JDBC connection, executes a single 
 ## Companion Docs
 
 - **[README.md](./README.md)** — public-facing overview, tech stack, quick run example.
-- **[DEPLOY.md](./DEPLOY.md)** — full Eclipse Export-Runnable-JAR procedure, Linux server requirements (Java 17+, network, file layout, permissions), troubleshooting table, and pre-deploy checklist. **Refer to this before touching build/deploy steps** — the human-facing procedure lives there, not here.
+- **[DEPLOY.md](./DEPLOY.md)** — full Eclipse Export-Runnable-JAR procedure, Linux server requirements (Java 21+, network, file layout, permissions), troubleshooting table, and pre-deploy checklist. **Refer to this before touching build/deploy steps** — the human-facing procedure lives there, not here.
 
 ## Build & Run
 
-This is a Maven project on Java 17 (`<java.version>` property, `maven-compiler-plugin` uses `<release>17</release>`). Building requires JDK 17+. The shipped artifact is a fat JAR.
+This is a Maven project on Java 21 (`<java.version>` property, `maven-compiler-plugin` uses `<release>21</release>`). Building requires JDK 21+. The shipped artifact is a fat JAR.
 
-> Note: Eclipse `.classpath` and `.settings/org.eclipse.jdt.core.prefs` still target `JavaSE-11`. Run **Maven → Update Project** in Eclipse (or change the project's JRE container to `JavaSE-17`) before exporting the runnable JAR.
+> Eclipse `.classpath` and `.settings/org.eclipse.jdt.core.prefs` target `JavaSE-21` (in sync with `pom.xml`). If you see a stale JRE container, run **Maven → Update Project** in Eclipse.
 
 **Two ways to build the JAR — note these disagree on the main class:**
 
@@ -75,10 +75,10 @@ Each environment has its own `application_<env>.properties` (template: `src/main
 - `secret.key` — Jasypt password used to decrypt the above. Note the secret sits next to the ciphertext in the same file; rotating credentials requires re-encrypting with `PBEStringEncryptor#encrypt`.
 - `email.host`, `html.flag`, `text.result.split.string`, `batch.split.character`
 
-`PropertyUtil` caches the first-loaded file statically in a JVM-wide field, so a single JAR invocation is locked to one properties file — fine for the one-procedure-per-run model, but don't try to reuse the loaded JVM across configs.
+`PropertyUtil` caches loaded `Properties` per file path in a static `ConcurrentHashMap` — each path is read from disk once, then reused for the rest of the JVM lifetime. Different paths get independent cached instances. The file is **not** re-read if it changes on disk during the run.
 
 ## Repo Layout Notes
 
 - `Shell_scripts/{DR_SITE,PROD,SIT,UAT}/` — per-environment wrappers ESP invokes. They hardcode `/app/batch_jar/...` paths and the matching properties file. **`external_files/Shell_scripts/...` and `external_files/Property_files/...` are the same files staged for deployment** — keep them in sync when editing.
-- ~~`jars/`~~ — removed. Runtime dependencies are declared in `pom.xml` (jasypt 1.9.3, mssql-jdbc 12.8.1.jre11, jakarta.mail-api 2.1.3 + angus-mail 2.0.3, jakarta.activation-api 2.1.3, junit-jupiter 5.10.3) and resolved via Maven Central. commons-io was dropped after migrating to `java.nio.file.Files`. If you see stale references in Eclipse `.classpath`, run **Maven → Update Project**.
+- ~~`jars/`~~ — removed. Runtime dependencies are declared in `pom.xml` (jasypt 1.9.3, mssql-jdbc 12.10.1.jre11, jakarta.mail-api 2.1.3 + angus-mail 2.0.4, jakarta.activation-api 2.1.3, junit-jupiter 5.13.4) and resolved via Maven Central. commons-io was dropped after migrating to `java.nio.file.Files`. If you see stale references in Eclipse `.classpath`, run **Maven → Update Project**.
 - `th.co.locus.test.TestBatchJob` is a dev-only entry point — do not ship.
